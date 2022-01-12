@@ -186,7 +186,7 @@ Vector3 light_origin(300, 400, 300);
 float radius = 25.0f;
 s32 width = 640;
 s32 height = 480;
-const int samples = 10;
+const int samples = 20;
 Vector3 cameraPosition;
 Vector3 cameraForward;
 Vector3 cameraUp;
@@ -242,13 +242,10 @@ class MyFace : public Face
 public:
 	MyFace() {}
 	Vector3 getNormalByHitPoint(const Vector3& hitPoint) const {
-		if (0&&hasNormal_) {
+		if (hasNormal_) {
 			float u = 0, v = 0, w = 1;
 			Barycentric(hitPoint, u, v, w);
-			Vector3 n = normal_[0] * u + normal_[1] * v + normal_[2] * w;
-			n.norm();
-			Vector3 n2 = getNormal();
-			return n;
+			return (normal_[0] * u + normal_[1] * v + normal_[2] * w).norm();
 		}
 		return getNormal();
 	}
@@ -286,7 +283,7 @@ public:
 		*/
 		Vector3 B = point_[1] - point_[0], C = point_[2] - point_[0], A = hitPoint - point_[0];
 		float d00 = B.dot(B);
-		float d01 = B.dot(C);
+		float d01 = C.dot(B);
 		float d11 = C.dot(C);
 		float d20 = A.dot(B);
 		float d21 = A.dot(C);
@@ -294,11 +291,15 @@ public:
 		float denom_u = d20 * d11 - d01 * d21;
 		float denom_v = d00 * d21 - d20 * d01;
 		float inv_denom = 1 / denom;
-		u = denom_u * inv_denom;
-		v = denom_v * inv_denom;
-		w = 1.0 - u - v;
+		float u1 = denom_u * inv_denom;
+		float v1 = denom_v * inv_denom;
+		// P_hit = p_1 + u * (p_2 - p_1) + v * (p_3 - p_1)
+		// =>
+		// P_hit = (1 - u - v) * p_1 + u * p_2 + v * p_3 
+		u = 1 - u1 - v1;
+		v = u1;
+		w = v1;
 	}
-	Vector3 uv_[2];
 	int id = 0;
 	Vector3 e, c;      // emission, color
 	Refl_t refl;      // reflection type (DIFFuse, SPECular, REFRactive)
@@ -324,6 +325,7 @@ Vector3 radiance(GRIDQBVH<MyFace>* bvh, accel::Ray& r, int depth, unsigned short
 	}
 	Vector3 x = r.origin_ + r.direction_ * t;
 	Vector3 n = face->getNormalByHitPoint(x);
+	//return (n  + Vector3(1,1,1)) * 0.5;
 	Vector3 nl = n.dot(r.direction_) < 0 ? n : n * -1;
 	Vector3 f = face->c;
 	double p = f.x() > f.y() && f.x() > f.z() ? f.x() : f.y() > f.z() ? f.y() : f.z(); // max refl
@@ -416,9 +418,8 @@ void test(
 	timer.start();
 	for (s32 i = 0; i < height; ++i) {
 		fprintf(stderr, "\rRendering  %5.2f%%",  100. * i / (height - 1));
-#ifndef _DEBUG
+
 #pragma omp parallel for schedule(dynamic, 1)
-#endif
 		for (s32 j = 0; j < width; ++j) {
 			RGB& pixel = rgb[i * width + j];
 			pixel.r_ = pixel.g_ = pixel.b_ = 0;
@@ -516,8 +517,9 @@ int main()
 		{DIFF, "./cbox/meshes/cbox_redwall.obj", Vector3(0, 0.0, 0),Vector3(0.570068, 0.0430135, 0.0443706)},
 		{DIFF, "./cbox/meshes/cbox_ceiling.obj", Vector3(0, 0, 0),Vector3(0.75, 0.75, 0.75)},
 		{SPEC, "./cbox/meshes/cbox_smallbox.obj", Vector3(0, 0, 0),Vector3(0.99, 0.99, 0.99)},
-		{DIFF, "./cbox/meshes/cbox_largebox.obj", Vector3(0, 0, 0.0),Vector3(0.4, 0.6, 0.6)},
+		{DIFF, "./cbox/meshes/cbox_largebox.obj", Vector3(0, 0, 0.0),Vector3(0.99, 0.8, 0.8)},
 		{SPEC, "./sphere.fbx",  Vector3(0, 0, 0), Vector3(0.99, 0.99, 0.99), Vector3(400, 150,150), true, 70.0f},
+		//{SPEC, "./zhuzi_bihe.fbx",  Vector3(0, 0, 0), Vector3(0.99, 0.99, 0.99), Vector3(400, 150,150), false, 10.0f},
 
 		//{DIFF, "./sphere.fbx", Vector3(1, 1, 1),Vector3(0, 0, 0)},
 		//{DIFF, "./cbox/meshes/cbox_back.obj", Vector3(1, 1, 1),Vector3(0.0, 0.0, 0.0)},
@@ -568,16 +570,6 @@ int main()
 			faces[i].point_[0] += config[idx].offset;
 			faces[i].point_[1] += config[idx].offset;
 			faces[i].point_[2] += config[idx].offset;
-			int uv_count = mesh->GetNumUVChannels();
-			if (mesh->GetNumUVChannels() > 0)
-			{
-				aiVector3D& uv1 = mesh->mTextureCoords[0][idx0];
-				aiVector3D& uv2 = mesh->mTextureCoords[0][idx1];
-				aiVector3D& uv3 = mesh->mTextureCoords[0][idx2];
-				faces[i].uv_[0] = Vector3(uv1.x, uv1.y, 0);
-				faces[i].uv_[1] = Vector3(uv2.x, uv2.y, 0);
-				faces[i].uv_[2] = Vector3(uv3.x, uv3.y, 0);
-			}
 
 			if (mesh->mNormals)
 			{
